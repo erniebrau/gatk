@@ -683,6 +683,18 @@ public final class Utils {
         }
     }
 
+    public static void validateState(final boolean condition, final String msg){
+        if (!condition){
+            throw new IllegalStateException(msg);
+        }
+    }
+
+    public static void validateState(final boolean condition, final Supplier<String> msg){
+        if (!condition){
+            throw new IllegalStateException(msg.get());
+        }
+    }
+
 
     /**
      * Checks that a user provided file is in fact a regular (i.e. not a directory or a special device) readable file.
