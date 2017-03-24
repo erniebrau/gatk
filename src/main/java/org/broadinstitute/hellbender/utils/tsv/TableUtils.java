@@ -106,9 +106,7 @@ public final class TableUtils {
             @Override
             protected void processColumns(final TableColumnCollection columns) {
                 recordExtractor = recordExtractorFactory.apply(columns,this::formatException);
-                if (recordExtractor == null) {
-                    throw new IllegalStateException("the record extractor function cannot be null");
-                }
+                Utils.validateState(recordExtractor != null, "the record extractor function cannot be null");
             }
 
             @Override
@@ -151,9 +149,7 @@ public final class TableUtils {
             @Override
             protected void processColumns(final TableColumnCollection columns) {
                 recordExtractor = recordExtractorFactory.apply(columns,this::formatException);
-                if (recordExtractor == null) {
-                    throw new IllegalStateException("the record extractor function cannot be null");
-                }
+                Utils.validateState(recordExtractor != null, "the record extractor function cannot be null");
             }
 
             @Override
@@ -198,9 +194,7 @@ public final class TableUtils {
             @Override
             protected void processColumns(final TableColumnCollection columns) {
                 recordExtractor = recordExtractorFactory.apply(columns,this::formatException);
-                if (recordExtractor == null) {
-                    throw new IllegalStateException("the record extractor function cannot be null");
-                }
+                Utils.validateState(recordExtractor != null, "the record extractor function cannot be null");
             }
 
             @Override

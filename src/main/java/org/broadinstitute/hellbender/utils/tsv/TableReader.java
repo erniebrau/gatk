@@ -295,9 +295,7 @@ public abstract class TableReader<R> implements Closeable, Iterable<R> {
      * @return never {@code null}.
      */
     public TableColumnCollection columns() {
-        if (columns == null) {
-            throw new IllegalStateException();
-        }
+        Utils.validateState(columns != null, "columns are null");
         return columns;
     }
 
