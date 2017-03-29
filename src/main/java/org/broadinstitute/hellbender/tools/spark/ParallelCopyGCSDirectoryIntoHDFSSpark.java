@@ -20,10 +20,18 @@ import java.nio.ByteBuffer;
 import java.nio.channels.SeekableByteChannel;
 import java.util.*;
 
+/**
+ * This tool uses Spark to do a parallel copy of either a file or a directory from GCS into HDFS.
+ * Files are divided into chunks of size equal to the HDFS block size (with the exception of the final
+ * chunk) and each Spark task is responsible for copying one chunk. To copy all of the files in a GCS directory,
+ * provide the GCS directory path, including the trailing slash. Directory copies are non-recursive so
+ * subdirectories will be skipped. Within directories each file is divided into chunks independently (so this will be
+ * inefficient if you have lots of files smaller than the block size). After all chunks are copied, the HDFS
+ * concat method is used to stitch together chunks into single files without re-copying them.
+ */
 @CommandLineProgramProperties(summary="Parallel copy a file or directory (non-recursive) from GCS into HDFS",
         oneLineSummary="Parallel copy a file or directory from GCS into HDFS.",
         programGroup = SparkProgramGroup.class)
-
 public class ParallelCopyGCSDirectoryIntoHDFSSpark extends GATKSparkTool {
     private static final long serialVersionUID = 1L;
 
@@ -43,12 +51,11 @@ public class ParallelCopyGCSDirectoryIntoHDFSSpark extends GATKSparkTool {
         final String inputGCSPathFinal = inputGCSPath;
         final String outputDirectoryFinal = outputHDFSDirectory;
 
-        try {
+        Path file = new Path(outputHDFSDirectory);
 
-            Path file = new Path(outputHDFSDirectory);
-            FileSystem fs = file.getFileSystem(new Configuration());
+        try(FileSystem fs = file.getFileSystem(new Configuration())){
+
             fs.mkdirs(file);
-
             final long chunkSize = Long.parseLong(fs.getConf().get("dfs.blocksize"));
 
             final GcsUtil gcsUtil = new GcsUtil.GcsUtilFactory().create(auth.asPipelineOptionsDeprecated());
@@ -131,12 +138,12 @@ public class ParallelCopyGCSDirectoryIntoHDFSSpark extends GATKSparkTool {
         final String basename = gcsPath.getName(gcsPath.getNameCount() - 1).toString();
         Path outputPath = new Path(outputDirectory);
         final String path = outputPath + "/" + basename + ".chunk." + chunkNum;
-        try {
 
-            final SeekableByteChannel channel = new GcsUtil.GcsUtilFactory().create(authHolder.asPipelineOptionsDeprecated()).open(gcsPath);
+        try (SeekableByteChannel channel = new GcsUtil.GcsUtilFactory().create(authHolder.asPipelineOptionsDeprecated()).open(gcsPath);
+             final OutputStream outputStream = new BufferedOutputStream(BucketUtils.createFile(path, authHolder))){
+
             final long start = chunkSize * (long) chunkNum;
             channel.position(start);
-            final OutputStream outputStream = new BufferedOutputStream(BucketUtils.createFile(path, authHolder));
             final int bufferSize = 512;
             ByteBuffer byteBuffer = ByteBuffer.allocate(bufferSize);
             long bytesRead = 0;
@@ -152,8 +159,6 @@ public class ParallelCopyGCSDirectoryIntoHDFSSpark extends GATKSparkTool {
                 }
                 byteBuffer.clear();
             }
-            outputStream.close();
-            channel.close();
         } catch (IOException e) {
             throw new GATKException(e.getMessage(), e);
         }
