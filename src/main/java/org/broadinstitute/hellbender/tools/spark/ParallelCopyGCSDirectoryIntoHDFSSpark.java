@@ -20,15 +20,15 @@ import java.nio.ByteBuffer;
 import java.nio.channels.SeekableByteChannel;
 import java.util.*;
 
-@CommandLineProgramProperties(summary="Parallel copy a big file from GCS into HDFS",
-        oneLineSummary="Parallel copy a big file from GCS into HDFS.",
+@CommandLineProgramProperties(summary="Parallel copy a file or directory (non-recursive) from GCS into HDFS",
+        oneLineSummary="Parallel copy a file or directory from GCS into HDFS.",
         programGroup = SparkProgramGroup.class)
 
 public class ParallelCopyGCSDirectoryIntoHDFSSpark extends GATKSparkTool {
     private static final long serialVersionUID = 1L;
 
-    @Argument(doc = "input GCS file path", fullName = "inputGCSDirectory")
-    private String inputGCSDirectory = null;
+    @Argument(doc = "input GCS file path (add trailing slash when specifying a directory)", fullName = "inputGCSPath")
+    private String inputGCSPath = null;
 
 
     @Argument(doc = "output directory on HDFS", shortName = "outputHDFSDirectory",
@@ -40,7 +40,7 @@ public class ParallelCopyGCSDirectoryIntoHDFSSpark extends GATKSparkTool {
     protected void runTool(final JavaSparkContext ctx) {
 
         final AuthHolder auth = getAuthHolder();
-        final String inputGCSPathFinal = inputGCSDirectory;
+        final String inputGCSPathFinal = inputGCSPath;
         final String outputDirectoryFinal = outputHDFSDirectory;
 
         try {
@@ -53,14 +53,24 @@ public class ParallelCopyGCSDirectoryIntoHDFSSpark extends GATKSparkTool {
 
             final GcsUtil gcsUtil = new GcsUtil.GcsUtilFactory().create(auth.asPipelineOptionsDeprecated());
 
-            final List<GcsPath> gcsPaths = gcsUtil.expand(GcsPath.fromUri(inputGCSPathFinal + "/*"));
+            final List<GcsPath> gcsPaths;
+            if (inputGCSPath.endsWith("/")) {
+                gcsPaths = gcsUtil.expand(GcsPath.fromUri(inputGCSPathFinal + "*"));
+            } else {
+                gcsPaths = Collections.singletonList(GcsPath.fromUri(inputGCSPathFinal));
+            }
+
             List<Tuple2<String, Integer>> chunkList = new ArrayList<>();
             for (GcsPath path : gcsPaths) {
 
                 final String filePath = path.toString();
+                if (path.endsWith("/")) {
+                    logger.info("skipping directory " + path);
+                    continue;
+                }
                 final long size = BucketUtils.fileSize(filePath, auth.asPipelineOptionsDeprecated());
                 final long chunks = size / chunkSize + 1;
-                logger.info("processing path " + path + ", size = " + size + ", chunks = chunks");
+                logger.info("processing path " + path + ", size = " + size + ", chunks = " + chunks);
 
                 for (int i = 0; i < chunks; i++) {
                     chunkList.add(new Tuple2<>(filePath, i));
