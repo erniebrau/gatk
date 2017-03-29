@@ -43,7 +43,6 @@ public class ParallelCopyGCSDirectoryIntoHDFSSpark extends GATKSparkTool {
         final String inputGCSPathFinal = inputGCSDirectory;
         final String outputDirectoryFinal = outputHDFSDirectory;
 
-
         try {
 
             Path file = new Path(outputHDFSDirectory);
@@ -54,24 +53,32 @@ public class ParallelCopyGCSDirectoryIntoHDFSSpark extends GATKSparkTool {
 
             final GcsUtil gcsUtil = new GcsUtil.GcsUtilFactory().create(auth.asPipelineOptionsDeprecated());
 
-            final List<GcsPath> gcsPaths = gcsUtil.expand(GcsPath.fromUri(inputGCSPathFinal + "*"));
+            final List<GcsPath> gcsPaths = gcsUtil.expand(GcsPath.fromUri(inputGCSPathFinal + "/*"));
             List<Tuple2<String, Integer>> chunkList = new ArrayList<>();
             for (GcsPath path : gcsPaths) {
 
                 final String filePath = path.toString();
-
                 final long size = BucketUtils.fileSize(filePath, auth.asPipelineOptionsDeprecated());
                 final long chunks = size / chunkSize + 1;
+                logger.info("processing path " + path + ", size = " + size + ", chunks = chunks");
 
                 for (int i = 0; i < chunks; i++) {
                     chunkList.add(new Tuple2<>(filePath, i));
                 }
             }
 
+            if (chunkList.size() == 0) {
+                logger.info("no files found to copy");
+                return;
+            }
+
             final JavaPairRDD<String, Integer> chunkRDD = ctx.parallelizePairs(chunkList, chunkList.size());
 
+            final String fsURI = fs.getUri().toString();
+            logger.warn("FS URI: "+ fsURI);
+
             final JavaPairRDD<String, Tuple2<Integer, String>> chunkMappingRDD =
-                    chunkRDD.mapValues(chunkNum -> readChunkToHdfs(auth, inputGCSPathFinal, chunkSize, chunkNum, outputDirectoryFinal));
+                    chunkRDD.mapToPair(p -> new Tuple2<>(p._1(), readChunkToHdfs(auth, p._1(), chunkSize, p._2(), outputDirectoryFinal)));
 
             final Map<String, Iterable<Tuple2<Integer, String>>> chunksByFilePath = chunkMappingRDD.groupByKey().collectAsMap();
 
@@ -80,8 +87,9 @@ public class ParallelCopyGCSDirectoryIntoHDFSSpark extends GATKSparkTool {
                 final String filePath = path.toString();
 
                 final Iterable<Tuple2<Integer, String>> chunkListForFile = chunksByFilePath.get(filePath);
-                final String basename = path.toFile().getName();
-                fs.createNewFile(new Path(outputDirectoryFinal + "/" + basename));
+                final String basename = path.getName(path.getNameCount() - 1).toString();
+                final Path outFilePath = new Path(outputDirectoryFinal + "/" + basename);
+                fs.createNewFile(outFilePath);
 
                 SortedMap<Integer, String> chunkMap = new TreeMap<>();
                 for (Tuple2<Integer, String> entry : chunkListForFile) {
@@ -97,7 +105,7 @@ public class ParallelCopyGCSDirectoryIntoHDFSSpark extends GATKSparkTool {
                     chunkPaths[next] = new Path(chunkPath);
                 }
 
-                fs.concat(file, chunkPaths);
+                fs.concat(outFilePath, chunkPaths);
             }
 
 
@@ -110,9 +118,9 @@ public class ParallelCopyGCSDirectoryIntoHDFSSpark extends GATKSparkTool {
 
     private static final Tuple2<Integer, String> readChunkToHdfs(final AuthHolder authHolder, final String inputGCSPathFinal, final long chunkSize, final Integer chunkNum, final String outputDirectory) {
         final GcsPath gcsPath = GcsPath.fromUri(inputGCSPathFinal);
-        final String basename = gcsPath.toFile().getName();
+        final String basename = gcsPath.getName(gcsPath.getNameCount() - 1).toString();
         Path outputPath = new Path(outputDirectory);
-        final String path = "hdfs://" + outputPath.getName() + "/" + basename + ".chunk." + chunkNum;
+        final String path = outputPath + "/" + basename + ".chunk." + chunkNum;
         try {
 
             final SeekableByteChannel channel = new GcsUtil.GcsUtilFactory().create(authHolder.asPipelineOptionsDeprecated()).open(gcsPath);
